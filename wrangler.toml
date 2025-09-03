@@ -1,0 +1,19 @@
+name = "lowendwikipedia"
+main = "src/index.ts"
+compatibility_date = "2024-01-01"
+
+[env.production]
+name = "lowendwikipedia"
+
+# Enable Workers logs
+[observability]
+enabled = true
+
+[observability.logs]
+enabled = true
+invocation_logs = true
+
+# Add your KV namespace bindings here if needed
+# [[kv_namespaces]]
+# binding = "MY_KV"
+# id = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"

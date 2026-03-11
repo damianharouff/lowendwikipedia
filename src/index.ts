@@ -291,7 +291,7 @@ async function handleArticle(articleUrl: string): Promise<Response> {
     }
 
     // #8: Remove sections by heading — walk both siblings and <section> wrappers
-    const sectionsToRemove = ['Notes', 'References', 'External links', 'External Links', 'Further reading', 'See also', 'Languages', 'Bibliography', 'Sources'];
+    const sectionsToRemove = ['Notes', 'References', 'External links', 'External Links', 'Further reading', 'Languages', 'Bibliography', 'Sources'];
     const headings = document.querySelectorAll('h2, h3');
 
     for (const heading of headings) {

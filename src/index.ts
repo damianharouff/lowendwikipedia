@@ -349,8 +349,20 @@ async function handleArticle(articleUrl: string): Promise<Response> {
       throw new Error('Could not find content');
     }
 
-    // Convert to simplified HTML
-    const simplifiedHtml = simplifyElement(contentElement, articleUrl);
+    // Convert to simplified HTML and strip Wikipedia footer (categories, "Retrieved from")
+    let simplifiedHtml = simplifyElement(contentElement, articleUrl);
+    const retrievedIdx = simplifiedHtml.indexOf('Retrieved from');
+    if (retrievedIdx !== -1) {
+      simplifiedHtml = simplifiedHtml.substring(0, retrievedIdx);
+    }
+    // Also strip standalone "Categories:" or "Hidden categories:" that may appear without "Retrieved from"
+    const catIdx = simplifiedHtml.search(/Categories\s*:/);
+    if (catIdx !== -1) {
+      // Only strip if it's near the end (last 20% of the content) to avoid false positives in article text
+      if (catIdx > simplifiedHtml.length * 0.8) {
+        simplifiedHtml = simplifiedHtml.substring(0, catIdx);
+      }
+    }
 
     // #13: Add cache headers
     return new Response(`<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 2.0//EN">

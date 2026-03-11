@@ -12,13 +12,15 @@ Inspired by [FrogFind](http://frogfind.com/) by [Action Retro](https://youtube.c
 
 ## Features
 
-- **Direct Wikipedia Access**: Search goes straight to Wikipedia articles
+- **Direct Wikipedia Access**: Search checks for an exact article match first, then falls back to search results
+- **Search Results Fallback**: Uses Wikipedia's OpenSearch API to show up to 15 results when no exact match is found
 - **Simplified HTML**: Converts modern Wikipedia to basic HTML 2.0
 - **No JavaScript Required**: Works on the most basic browsers
 - **Clean Reading Experience**: Removes sidebars, navigation, edit links, and references
 - **Link Proxying**: All Wikipedia links stay within the simplified interface
-- **Image Support**: Basic image viewing for JPG/PNG files
 - **Low Bandwidth**: Stripped-down HTML reduces data transfer
+- **Caching**: Article pages are cached for 10 minutes to reduce latency
+- **Security**: XSS-safe output escaping, SSRF protection (Wikipedia-only URLs), proper URL encoding
 
 ## Setup
 
@@ -42,13 +44,25 @@ npx wrangler login
 
 3. Update `wrangler.toml` with your account details if needed
 
+### Development
+
+Run a local development server:
+```bash
+npm run dev
+```
+The dev server is accessible at `http://localhost:8787`.
+
 ### Deployment
 
 Deploy to Cloudflare Workers:
 ```bash
 npm run deploy
 ```
-The worker deploys to production at `https://lowendwikipedia.your-account-name.workers.dev`
+
+View live logs:
+```bash
+npm run tail
+```
 
 ## What Gets Removed
 
@@ -65,7 +79,7 @@ The worker deploys to production at `https://lowendwikipedia.your-account-name.w
 ## What Remains
 
 - Article title and main text
-- Basic formatting (headings, paragraphs, lists)
+- Basic formatting (headings, paragraphs, bold, italic, lists)
 - Internal Wikipedia links (proxied)
 - Essential structure for readability
 

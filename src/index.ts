@@ -307,16 +307,28 @@ async function handleArticle(articleUrl: string): Promise<Response> {
         continue;
       }
 
-      // Desktop/fallback: walk siblings
-      let sibling = heading as Element | null;
+      // Desktop Wikipedia wraps headings in <div class="mw-heading">
+      // Walk siblings of the wrapper div instead of the heading itself
+      let startEl: Element = heading;
+      if (parentSection && parentSection.classList?.contains('mw-heading')) {
+        startEl = parentSection;
+      }
+
+      // Walk siblings from the start element
+      let sibling: Element | null = startEl;
       const headingLevel = heading.tagName;
 
       while (sibling) {
         const next = sibling.nextElementSibling;
         sibling.remove();
 
-        if (next && (next.tagName === 'H1' || next.tagName === 'H2' || (headingLevel === 'H3' && next.tagName === 'H3'))) {
-          break;
+        if (next) {
+          // Check if next element is a heading wrapper or a heading itself at same/higher level
+          const nextHeading = next.classList?.contains('mw-heading') ? next.querySelector('h1, h2, h3, h4, h5, h6') : null;
+          const nextTag = nextHeading ? nextHeading.tagName : next.tagName;
+          if (nextTag === 'H1' || nextTag === 'H2' || (headingLevel === 'H3' && nextTag === 'H3')) {
+            break;
+          }
         }
 
         sibling = next;

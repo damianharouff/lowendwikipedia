@@ -69,17 +69,19 @@ npm run tail
 - JavaScript and CSS
 - Navigation menus and sidebars
 - Edit links and buttons
-- References and external links sections
+- References, external links, bibliography, and sources sections
+- Categories and hidden categories
 - Language selection lists
 - Infoboxes and complex tables
 - Thumbnails and image galleries
 - Table of contents
-- Footer sections
+- Footer text ("Retrieved from", Wikimedia links)
 
 ## What Remains
 
 - Article title and main text
 - Basic formatting (headings, paragraphs, bold, italic, lists)
+- "See also" section with internal links
 - Internal Wikipedia links (proxied)
 - Essential structure for readability
 

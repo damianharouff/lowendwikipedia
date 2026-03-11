@@ -254,7 +254,11 @@ async function handleArticle(articleUrl: string): Promise<Response> {
       // Language links
       '#p-lang',
       '.interlanguage-link',
-      '.languages'
+      '.languages',
+
+      // Categories
+      '#catlinks',
+      '.catlinks'
     );
 
     for (const selector of selectorsToRemove) {

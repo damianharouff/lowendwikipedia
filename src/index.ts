@@ -258,7 +258,12 @@ async function handleArticle(articleUrl: string): Promise<Response> {
 
       // Categories
       '#catlinks',
-      '.catlinks'
+      '.catlinks',
+      '#mw-normal-catlinks',
+      '.mw-normal-catlinks',
+      '#mw-hidden-catlinks',
+      '.mw-hidden-catlinks',
+      '[data-mw-interface]'
     );
 
     for (const selector of selectorsToRemove) {
@@ -318,11 +323,17 @@ async function handleArticle(articleUrl: string): Promise<Response> {
       }
     }
 
-    // Remove any remaining edit text
+    // Remove any remaining edit text and category remnants
     const allElements = document.querySelectorAll('*');
     for (const element of allElements) {
       const text = element.textContent?.trim() || '';
       if (text === 'edit' || text === '[edit]' || text === 'Edit') {
+        element.remove();
+        continue;
+      }
+      // Catch any category containers that survived selector removal
+      const id = element.getAttribute('id') || '';
+      if (id === 'catlinks' || id === 'mw-normal-catlinks' || id === 'mw-hidden-catlinks') {
         element.remove();
       }
     }

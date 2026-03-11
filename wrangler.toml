@@ -2,9 +2,6 @@ name = "lowendwikipedia"
 main = "src/index.ts"
 compatibility_date = "2024-01-01"
 
-[env.production]
-name = "lowendwikipedia"
-
 # Enable Workers logs
 [observability]
 enabled = true

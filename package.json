@@ -4,13 +4,13 @@
   "private": true,
   "scripts": {
     "dev": "wrangler dev",
-    "deploy": "wrangler deploy --env production",
+    "deploy": "wrangler deploy",
     "tail": "wrangler tail"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20241127.0",
     "typescript": "^5.7.2",
-    "wrangler": "^4.33.2"
+    "wrangler": "^4.72.0"
   },
   "dependencies": {
     "linkedom": "^0.16.0"

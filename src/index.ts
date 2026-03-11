@@ -416,6 +416,14 @@ function simplifyElement(element: Element, baseUrl: string): string {
         continue;
       }
 
+      // Skip category containers and other unwanted elements by id/class
+      const elId = el.getAttribute('id') || '';
+      const elClass = el.getAttribute('class') || '';
+      if (elId === 'catlinks' || elId === 'mw-normal-catlinks' || elId === 'mw-hidden-catlinks' ||
+          elClass.includes('catlinks') || elClass.includes('mw-hidden-catlinks')) {
+        continue;
+      }
+
       // Handle specific tags
       switch (tagName) {
         case 'a': {

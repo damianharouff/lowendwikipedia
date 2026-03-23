@@ -115,7 +115,7 @@ ${resultsHtml}  </ul>
 }
 
 // #7: no longer async since it doesn't await; #10: uses search API with fallback
-async function handleWikipediaSearch(query: string): Promise<Response> {
+async function handleWikipediaSearch(query: string, requestUrl: string): Promise<Response> {
   const articleName = query.replace(/ /g, '_');
   const articleUrl = `https://en.wikipedia.org/wiki/${encodeURIComponent(articleName)}`;
 
@@ -130,7 +130,8 @@ async function handleWikipediaSearch(query: string): Promise<Response> {
 
   if (checkResponse.ok) {
     // Article exists — redirect to it through the proxy
-    return Response.redirect(`/read?a=${encodeURIComponent(articleUrl)}`, 302);
+    const base = new URL(requestUrl);
+    return Response.redirect(`${base.origin}/read?a=${encodeURIComponent(articleUrl)}`, 302);
   }
 
   // Article not found — fall back to search results
@@ -523,7 +524,7 @@ export default {
     if (path === '/' || path === '/index.php') {
       const query = url.searchParams.get('q');
       if (query) {
-        return handleWikipediaSearch(query);
+        return handleWikipediaSearch(query, request.url);
       }
       return new Response(renderHomePage(), {
         headers: { 'Content-Type': 'text/html; charset=utf-8' }

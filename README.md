@@ -4,7 +4,7 @@ A lightweight Wikipedia proxy for low-power clients and vintage computers, deliv
 
 ## About
 
-LowEndWikipedia provides simplified Wikipedia access for devices that can't handle modern web complexity. It strips JavaScript, CSS, and complex HTML to deliver content that works on machines from the 1980s and 1990s, as well as modern low-power devices and text-based browsers.
+LowEndWikipedia provides simplified Wikipedia access for devices that can't handle modern web complexity. It rewrites modern Wikipedia into basic HTML 2.0-era markup that works on e-ink readers (its primary target is the Kindle browser), machines from the 1980s and 1990s, and text-based browsers.
 
 ![Example on Kindle](https://static-objects.cekkent.net/kindle-jupiter3.jpg)
 
@@ -12,15 +12,16 @@ Inspired by [FrogFind](http://frogfind.com/) by [Action Retro](https://youtube.c
 
 ## Features
 
-- **Direct Wikipedia Access**: Search checks for an exact article match first, then falls back to search results
+- **Direct Wikipedia Access**: Searching for an exact article title serves the article immediately (no extra redirect round trip); otherwise you get search results
 - **Search Results Fallback**: Uses Wikipedia's OpenSearch API to show up to 15 results when no exact match is found
-- **Simplified HTML**: Converts modern Wikipedia to basic HTML 2.0
+- **Streaming Rewriter**: Articles are transformed with Cloudflare's native `HTMLRewriter` — the Worker never buffers the page, so bytes reach slow clients as soon as Wikipedia sends them
+- **Simplified HTML**: Converts modern Wikipedia to basic HTML 2.0 with a small tag whitelist and all attributes stripped
+- **ASCII-Safe Output**: Served as ISO-8859-1 with typographic punctuation transliterated and all other non-ASCII characters encoded as numeric character references, so vintage browsers without Unicode support render correctly
 - **No JavaScript Required**: Works on the most basic browsers
-- **Clean Reading Experience**: Removes sidebars, navigation, edit links, and references
-- **Link Proxying**: All Wikipedia links stay within the simplified interface
-- **Low Bandwidth**: Stripped-down HTML reduces data transfer
-- **Caching**: Article pages are cached for 10 minutes to reduce latency
-- **Security**: XSS-safe output escaping, SSRF protection (Wikipedia-only URLs), proper URL encoding
+- **Link Proxying**: Wikipedia links stay within the simplified interface; external links go direct; edit/red links are unwrapped to plain text
+- **Pretty URLs**: `/wiki/Article_name` works just like on Wikipedia
+- **Edge Caching**: Rendered pages are cached at the Cloudflare edge for 10 minutes via the Cache API
+- **Security**: SSRF protection (exact Wikipedia-domain match), XSS-safe rewriting, size-capped file proxying
 
 ## Setup
 
@@ -42,7 +43,7 @@ npm install
 npx wrangler login
 ```
 
-3. Update `wrangler.toml` with your account details if needed
+3. Update `wrangler.jsonc` with your account details if needed
 
 ### Development
 
@@ -51,6 +52,12 @@ Run a local development server:
 npm run dev
 ```
 The dev server is accessible at `http://localhost:8787`.
+
+Typecheck and run the test suite:
+```bash
+npm run check
+npm test
+```
 
 ### Deployment
 
@@ -67,22 +74,25 @@ npm run tail
 ## What Gets Removed
 
 - JavaScript and CSS
-- Navigation menus and sidebars
+- Navigation menus, sidebars, and page toolbars
 - Edit links and buttons
 - References, external links, bibliography, and sources sections
+- Inline citation markers ([1], [2], ...)
 - Categories and hidden categories
 - Language selection lists
-- Infoboxes and complex tables
-- Thumbnails and image galleries
+- Infoboxes and all tables
+- Images, figures, galleries, and math markup
 - Table of contents
 - Footer text ("Retrieved from", Wikimedia links)
+- HTML comments and all element attributes
 
 ## What Remains
 
 - Article title and main text
-- Basic formatting (headings, paragraphs, bold, italic, lists)
+- Basic formatting (headings, paragraphs, bold, italic, lists, definition lists, code blocks)
 - "See also" section with internal links
 - Internal Wikipedia links (proxied)
+- External links (direct)
 - Essential structure for readability
 
 ## License

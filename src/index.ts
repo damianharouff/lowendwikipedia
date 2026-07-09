@@ -9,7 +9,7 @@
  */
 
 // Wikimedia's User-Agent policy asks for contact info in bot/proxy UAs.
-const USER_AGENT = 'LowEndWikipedia/1.0 (https://github.com/damianharouff/lowendwikipedia) Cloudflare-Workers';
+const USER_AGENT = 'LowEndWikipedia/1.0 (https://github.com/damianharouff/lowendwikipedia; cekkent@icloud.com) Cloudflare-Workers';
 const CONTENT_TYPE = 'text/html; charset=iso-8859-1';
 const CACHE_CONTROL = 'public, max-age=600';
 // Wikimedia thumbnail URLs are effectively immutable, so cache transformed

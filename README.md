@@ -85,7 +85,7 @@ npm run tail
 - Categories and hidden categories
 - Language selection lists
 - Infoboxes and all tables (including their images)
-- Image galleries and math markup
+- Image galleries
 - Table of contents
 - Footer text ("Retrieved from", Wikimedia links)
 - HTML comments and all element attributes
@@ -95,6 +95,7 @@ npm run tail
 - Article title and main text
 - Basic formatting (headings, paragraphs, bold, italic, lists, definition lists, code blocks)
 - Article images with captions (grayscale, resized for e-ink; disable with the "Text-only" link)
+- Math formulas as PNG renders (SVG-free, e-ink safe); text-only mode shows the TeX source
 - "See also" section with internal links
 - Internal Wikipedia links (proxied)
 - External links (direct)

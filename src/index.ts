@@ -95,7 +95,6 @@ const REMOVED_SELECTORS = [
   '.toc',
   '#toc',
   '.noprint',
-  '.mwe-math-element',
 ];
 
 // Elements kept as-is (attributes stripped). Everything else is unwrapped.
@@ -145,6 +144,28 @@ function isWikimediaImageUrl(urlStr: string): boolean {
   } catch {
     return false;
   }
+}
+
+// Wikimedia's math renderer (SVG and PNG formula images).
+function isMathRenderUrl(urlStr: string): boolean {
+  try {
+    const url = new URL(urlStr);
+    return (
+      url.protocol === 'https:' &&
+      url.hostname === 'wikimedia.org' &&
+      url.pathname.startsWith('/api/rest_v1/media/math/render/')
+    );
+  } catch {
+    return false;
+  }
+}
+
+// The math fallback image's alt holds the TeX source, e.g.
+// "{\displaystyle pV=nRT}". Unwrap it and force ASCII for text rendering.
+function texFromAlt(alt: string | null): string {
+  if (!alt) return '';
+  const match = alt.match(/^\{\\displaystyle\s*([\s\S]*)\}\s*$/);
+  return (match ? match[1] : alt).replace(/[^\x20-\x7E]/g, '').trim();
 }
 
 // Pick the highest-density srcset candidate (Wikipedia emits "url 1.5x, url 2x")
@@ -412,16 +433,36 @@ export function transformArticle(
   rewriter.on('img', {
     element(el) {
       if (el.removed) return;
-      if (!showImages) {
-        el.remove();
-        return;
-      }
       const best = bestImageSource(el.getAttribute('srcset'), el.getAttribute('src'));
       let resolved: URL | null = null;
       try {
         resolved = best ? new URL(best, articleUrl) : null;
       } catch {
         // Fall through to removal.
+      }
+      // Math formulas: e-ink browsers can't draw the SVG render, so swap it
+      // for Wikimedia's PNG render; text-only mode gets the TeX source.
+      if (resolved && isMathRenderUrl(resolved.href)) {
+        const tex = texFromAlt(el.getAttribute('alt'));
+        if (!showImages) {
+          if (tex) el.replace(`<i><tt>${safeText(tex)}</tt></i>`, { html: true });
+          else el.remove();
+          return;
+        }
+        const isBlock = (el.getAttribute('class') || '').includes('display');
+        const pngUrl = resolved.href.replace('/render/svg/', '/render/png/');
+        stripAttributes(el);
+        el.setAttribute('src', `/img?src=${encodeURIComponent(pngUrl)}`);
+        if (tex) el.setAttribute('alt', tex);
+        if (isBlock) {
+          el.before('<br>', { html: true });
+          el.after('<br>', { html: true });
+        }
+        return;
+      }
+      if (!showImages) {
+        el.remove();
+        return;
       }
       if (!resolved || !isWikimediaImageUrl(resolved.href)) {
         el.remove();
@@ -436,7 +477,7 @@ export function transformArticle(
       el.setAttribute('src', `/img?src=${encodeURIComponent(resolved.href)}`);
       if (width) el.setAttribute('width', width);
       if (height) el.setAttribute('height', height);
-      if (alt) el.setAttribute('alt', alt);
+      if (alt) el.setAttribute('alt', alt.replace(/[^\x20-\x7E]/g, ''));
     },
   });
 
@@ -555,7 +596,8 @@ function proxyDownload(upstream: Response, articleUrl: string): Response {
 // Fetch a Wikimedia thumbnail and re-encode it for e-ink: grayscale JPEG,
 // capped width, heavy-but-invisible-on-e-ink compression.
 async function handleImage(srcParam: string, env: Env): Promise<Response> {
-  if (!isWikimediaImageUrl(srcParam)) {
+  const isMath = isMathRenderUrl(srcParam);
+  if (!isWikimediaImageUrl(srcParam) && !isMath) {
     return new Response('Only Wikimedia-hosted images are supported.', { status: 400 });
   }
   let upstream: Response;
@@ -566,6 +608,14 @@ async function handleImage(srcParam: string, env: Env): Promise<Response> {
   }
   if (!upstream.ok || !upstream.body) {
     return new Response('Failed to fetch image.', { status: 502 });
+  }
+  // Formula PNGs are already tiny black-on-transparent line art — pass them
+  // through untouched; re-encoding to JPEG would only blur the glyphs.
+  if (isMath) {
+    const contentType = (upstream.headers.get('content-type') || 'image/png').split(';')[0];
+    return new Response(upstream.body, {
+      headers: { 'Content-Type': contentType, 'Cache-Control': IMAGE_CACHE_CONTROL },
+    });
   }
   try {
     const transformed = await env.IMAGES.input(upstream.body)

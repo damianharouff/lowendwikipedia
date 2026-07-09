@@ -33,6 +33,8 @@ async function transform(
 
 const FIGURE_HTML = `<figure typeof="mw:File/Thumb"><a href="/wiki/File:Photo.jpg"><img src="//upload.wikimedia.org/wikipedia/commons/thumb/d/d4/Photo.jpg/250px-Photo.jpg" width="250" height="188" alt="A photo" srcset="//upload.wikimedia.org/wikipedia/commons/thumb/d/d4/Photo.jpg/500px-Photo.jpg 2x"></a><figcaption>The caption</figcaption></figure>`;
 
+const MATH_HTML = `<p>Ideal gas law: <span class="mwe-math-element mwe-math-element-block"><span class="mwe-math-mathml-a11y" style="display:none"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>p</mi><mi>V</mi></mrow><annotation encoding="application/x-tex">{\\displaystyle pV=nRT}</annotation></semantics></math></span><img src="https://wikimedia.org/api/rest_v1/media/math/render/svg/abc123" class="mwe-math-fallback-image-display" alt="{\\displaystyle pV=nRT}" style="width:11.5ex"></span></p>`;
+
 describe('transformArticle', () => {
   it('keeps entity-encoded text intact without decoding it into markup', async () => {
     const out = await transform('<p>Use the &lt;script&gt; tag &amp; enjoy.</p>');
@@ -120,6 +122,24 @@ describe('transformArticle', () => {
     // File: page wrapper link is unwrapped, caption becomes small italic text
     expect(out).not.toContain('File%3APhoto');
     expect(out).toContain('<small><i>The caption</i></small>');
+  });
+
+  it('renders math formulas via the PNG endpoint with TeX alt text', async () => {
+    const out = await transform(MATH_HTML);
+    expect(out).toContain(
+      'src="/img?src=https%3A%2F%2Fwikimedia.org%2Fapi%2Frest_v1%2Fmedia%2Fmath%2Frender%2Fpng%2Fabc123"'
+    );
+    expect(out).toContain('alt="pV=nRT"');
+    // Display formulas get their own line; hidden MathML must not leak
+    expect(out).toMatch(/<br><img[^>]*><br>/);
+    expect(out).not.toContain('<math');
+    expect(out).not.toContain('semantics');
+  });
+
+  it('shows TeX source for formulas in text-only mode', async () => {
+    const out = await transform(MATH_HTML, ARTICLE_URL, false);
+    expect(out).not.toContain('<img');
+    expect(out).toContain('<i><tt>pV=nRT</tt></i>');
   });
 
   it('removes non-Wikimedia images', async () => {
@@ -267,6 +287,29 @@ describe('routing', () => {
     expect(res.status).toBe(400);
     res = await SELF.fetch(`https://lowend.example/img?src=${encodeURIComponent('https://example.com/x.png')}`);
     expect(res.status).toBe(400);
+    // wikimedia.org is only allowed for the math renderer path
+    res = await SELF.fetch(`https://lowend.example/img?src=${encodeURIComponent('https://wikimedia.org/other/thing.png')}`);
+    expect(res.status).toBe(400);
+  });
+
+  it('passes math render PNGs through untouched', async () => {
+    const png = Uint8Array.from(
+      atob(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
+      ),
+      (c) => c.charCodeAt(0)
+    );
+    stubWikipedia({
+      'https://wikimedia.org/api/rest_v1/media/math/render/png/': () =>
+        new Response(png, { headers: { 'content-type': 'image/png; charset=utf-8; profile="x"' } }),
+    });
+
+    const src = encodeURIComponent('https://wikimedia.org/api/rest_v1/media/math/render/png/abc123');
+    const res = await SELF.fetch(`https://lowend.example/img?src=${src}`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toBe('image/png');
+    const body = new Uint8Array(await res.arrayBuffer());
+    expect(body).toEqual(png);
   });
 
   it('serves images from the /img proxy', async () => {

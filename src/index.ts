@@ -11,7 +11,14 @@
 const USER_AGENT = 'LowEndWikipedia/1.0 (Cloudflare Worker; lowend-browser-proxy)';
 const CONTENT_TYPE = 'text/html; charset=iso-8859-1';
 const CACHE_CONTROL = 'public, max-age=600';
+// Wikimedia thumbnail URLs are effectively immutable, so cache transformed
+// images much longer than pages.
+const IMAGE_CACHE_CONTROL = 'public, max-age=2592000';
 const MAX_DOWNLOAD_BYTES = 8_000_000;
+// Target width for the primary device (Kindle Oasis, 7" e-ink): images are
+// displayed at their ~250px layout width, so 500px sources stay crisp at
+// 300 ppi without ever shipping full-size originals.
+const MAX_IMAGE_WIDTH = 500;
 
 // Sections dropped from articles, matched by MediaWiki heading id
 // (heading ids are the heading text with spaces as underscores).
@@ -30,11 +37,12 @@ const REMOVED_SECTION_IDS = [
 ];
 const REMOVED_SECTION_ID_SET = new Set(REMOVED_SECTION_IDS);
 
-// Elements whose entire subtree is dropped.
+// Elements whose entire subtree is dropped. img/figure are handled
+// separately so article images can be kept.
 const REMOVED_TAGS = new Set([
   'script', 'style', 'noscript', 'template', 'link', 'meta', 'iframe',
-  'object', 'embed', 'video', 'audio', 'canvas', 'svg', 'math', 'img',
-  'picture', 'source', 'figure', 'map', 'table', 'form', 'input', 'button',
+  'object', 'embed', 'video', 'audio', 'canvas', 'svg', 'math',
+  'source', 'map', 'table', 'form', 'input', 'button',
   'select', 'textarea', 'label', 'nav', 'footer', 'aside', 'dialog',
 ]);
 
@@ -82,7 +90,6 @@ const REMOVED_SELECTORS = [
   '.navbox',
   '.vertical-navbox',
   '.sidebar',
-  '.thumb',
   '.gallery',
   '.toc',
   '#toc',
@@ -130,6 +137,32 @@ function safeText(str: string): string {
   return toAsciiEntities(escapeHtml(cleanStr(str)));
 }
 
+function isWikimediaImageUrl(urlStr: string): boolean {
+  try {
+    const url = new URL(urlStr);
+    return url.protocol === 'https:' && url.hostname === 'upload.wikimedia.org';
+  } catch {
+    return false;
+  }
+}
+
+// Pick the highest-density srcset candidate (Wikipedia emits "url 1.5x, url 2x")
+// so 300 ppi e-ink gets a sharp source; fall back to src.
+function bestImageSource(srcset: string | null, src: string | null): string | null {
+  let best = src;
+  let bestDensity = 1;
+  for (const entry of (srcset || '').split(',')) {
+    const [url, descriptor] = entry.trim().split(/\s+/);
+    if (!url) continue;
+    const density = parseFloat(descriptor || '1') || 1;
+    if (density > bestDensity || best === null) {
+      best = url;
+      bestDensity = density;
+    }
+  }
+  return best;
+}
+
 function isWikipediaUrl(urlStr: string): boolean {
   try {
     const url = new URL(urlStr);
@@ -168,9 +201,15 @@ ${body}
 </html>`;
 }
 
-// The "Browsing URL" bar shown above articles and error pages.
-function browsingForm(articleUrl: string): string {
-  return `<p><form action="/read" method="get"><a href="/">Back to <b>LowEndWikipedia</b></a> | Browsing URL: <input type="text" size="30" name="a" value="${safeText(articleUrl)}"> <input type="submit" value="Go!"></form></p>
+// The "Browsing URL" bar shown above articles and error pages. When
+// showImages is set, an images on/off toggle for the current page is added.
+function browsingForm(articleUrl: string, showImages?: boolean): string {
+  let toggle = '';
+  if (showImages !== undefined) {
+    const toggleHref = `/read?a=${encodeURIComponent(articleUrl)}${showImages ? '&noimg=1' : ''}`;
+    toggle = ` | <a href="${toggleHref}">${showImages ? 'Text-only' : 'Show images'}</a>`;
+  }
+  return `<p><form action="/read" method="get"><a href="/">Back to <b>LowEndWikipedia</b></a>${toggle} | Browsing URL: <input type="text" size="30" name="a" value="${safeText(articleUrl)}"> <input type="submit" value="Go!"></form></p>
 <hr>`;
 }
 
@@ -214,7 +253,7 @@ Search Wikipedia: <input type="text" size="30" name="q"><br>
  * Streaming, so the client starts receiving bytes before Wikipedia has
  * finished sending them and the Worker never buffers the page.
  */
-export function transformArticle(upstream: Response, articleUrl: string): Response {
+export function transformArticle(upstream: Response, articleUrl: string, showImages = true): Response {
   const title = safeText(`${titleFromUrl(articleUrl)} - LowEndWikipedia`);
   const rewriter = new HTMLRewriter();
 
@@ -247,7 +286,7 @@ export function transformArticle(upstream: Response, articleUrl: string): Respon
 
   rewriter.on('body', {
     element(el) {
-      el.prepend(`${browsingForm(articleUrl)}<font size="4">`, { html: true });
+      el.prepend(`${browsingForm(articleUrl, showImages)}<font size="4">`, { html: true });
       el.append('</font>', { html: true });
     },
   });
@@ -290,12 +329,15 @@ export function transformArticle(upstream: Response, articleUrl: string): Respon
       if (isWikipediaUrl(resolved.href)) {
         const samePage = resolved.href.split('#')[0] === articleUrl.split('#')[0];
         const isEditLink = resolved.searchParams.has('action') || resolved.searchParams.has('redlink');
-        if (samePage || isEditLink) {
+        // File: description pages render poorly on low-end clients.
+        const isFilePage = /^\/wiki\/File(:|%3A)/.test(resolved.pathname);
+        if (samePage || isEditLink || isFilePage) {
           // Fragment anchors don't survive attribute stripping, and edit /
           // red links lead nowhere useful — keep the text, drop the link.
           el.removeAndKeepContent();
         } else {
-          el.setAttribute('href', `/read?a=${encodeURIComponent(resolved.href)}`);
+          const noimg = showImages ? '' : '&noimg=1';
+          el.setAttribute('href', `/read?a=${encodeURIComponent(resolved.href)}${noimg}`);
         }
       } else if (['http:', 'https:', 'mailto:'].includes(resolved.protocol)) {
         // Non-Wikipedia links are left as direct links rather than proxied.
@@ -303,6 +345,37 @@ export function transformArticle(upstream: Response, articleUrl: string): Respon
       } else {
         el.removeAndKeepContent();
       }
+    },
+  });
+
+  rewriter.on('img', {
+    element(el) {
+      if (el.removed) return;
+      if (!showImages) {
+        el.remove();
+        return;
+      }
+      const best = bestImageSource(el.getAttribute('srcset'), el.getAttribute('src'));
+      let resolved: URL | null = null;
+      try {
+        resolved = best ? new URL(best, articleUrl) : null;
+      } catch {
+        // Fall through to removal.
+      }
+      if (!resolved || !isWikimediaImageUrl(resolved.href)) {
+        el.remove();
+        return;
+      }
+      // Keep the 1x layout dimensions so e-ink browsers can lay out the page
+      // before the (higher-density) image arrives.
+      const width = el.getAttribute('width');
+      const height = el.getAttribute('height');
+      const alt = el.getAttribute('alt');
+      stripAttributes(el);
+      el.setAttribute('src', `/img?src=${encodeURIComponent(resolved.href)}`);
+      if (width) el.setAttribute('width', width);
+      if (height) el.setAttribute('height', height);
+      if (alt) el.setAttribute('alt', alt);
     },
   });
 
@@ -314,9 +387,15 @@ export function transformArticle(upstream: Response, articleUrl: string): Respon
         el.remove();
         return;
       }
-      if (tag === 'a') {
-        // Rewritten by the handler above; only enforce section skipping.
+      if (tag === 'a' || tag === 'img') {
+        // Rewritten by the handlers above; only enforce section skipping.
         if (skipLevel !== null) el.remove();
+        return;
+      }
+      if (tag === 'figcaption' && skipLevel === null) {
+        el.before('<br><small><i>', { html: true });
+        el.after('</i></small>', { html: true });
+        el.removeAndKeepContent();
         return;
       }
       if (KEPT_TAGS.has(tag)) {
@@ -412,7 +491,48 @@ function proxyDownload(upstream: Response, articleUrl: string): Response {
   return new Response(body, { status: upstream.status, headers });
 }
 
-async function handleArticle(articleUrl: string): Promise<Response> {
+// Fetch a Wikimedia thumbnail and re-encode it for e-ink: grayscale JPEG,
+// capped width, heavy-but-invisible-on-e-ink compression.
+async function handleImage(srcParam: string, env: Env): Promise<Response> {
+  if (!isWikimediaImageUrl(srcParam)) {
+    return new Response('Only Wikimedia-hosted images are supported.', { status: 400 });
+  }
+  let upstream: Response;
+  try {
+    upstream = await wikiFetch(srcParam);
+  } catch {
+    return new Response('Failed to fetch image.', { status: 502 });
+  }
+  if (!upstream.ok || !upstream.body) {
+    return new Response('Failed to fetch image.', { status: 502 });
+  }
+  try {
+    const transformed = await env.IMAGES.input(upstream.body)
+      .transform({ width: MAX_IMAGE_WIDTH, saturation: 0, background: '#FFFFFF' })
+      .output({ format: 'image/jpeg', quality: 65 });
+    return new Response(transformed.response().body, {
+      headers: { 'Content-Type': 'image/jpeg', 'Cache-Control': IMAGE_CACHE_CONTROL },
+    });
+  } catch {
+    // Transformation unavailable (local dev, exotic format) — pass the
+    // thumbnail through untouched. The input stream may already be consumed,
+    // so fetch it again.
+    try {
+      const retry = await wikiFetch(srcParam);
+      if (!retry.ok) throw new Error(`upstream HTTP ${retry.status}`);
+      return new Response(retry.body, {
+        headers: {
+          'Content-Type': retry.headers.get('content-type') || 'application/octet-stream',
+          'Cache-Control': IMAGE_CACHE_CONTROL,
+        },
+      });
+    } catch {
+      return new Response('Failed to process image.', { status: 502 });
+    }
+  }
+}
+
+async function handleArticle(articleUrl: string, showImages: boolean): Promise<Response> {
   if (!isWikipediaUrl(articleUrl)) {
     return errorResponse(articleUrl, 'Only Wikipedia URLs are supported.', 400);
   }
@@ -443,10 +563,10 @@ async function handleArticle(articleUrl: string): Promise<Response> {
       upstream.status === 404 ? 404 : 502
     );
   }
-  return transformArticle(upstream, upstream.url || articleUrl);
+  return transformArticle(upstream, upstream.url || articleUrl, showImages);
 }
 
-async function renderSearchResults(query: string): Promise<Response> {
+async function renderSearchResults(query: string, showImages: boolean): Promise<Response> {
   const safeQuery = safeText(query);
   try {
     const apiUrl = `https://en.wikipedia.org/w/api.php?action=opensearch&search=${encodeURIComponent(query)}&limit=15&namespace=0&format=json`;
@@ -463,7 +583,8 @@ async function renderSearchResults(query: string): Promise<Response> {
       const resultTitle = titles[i];
       const resultUrl = urls[i];
       if (typeof resultTitle !== 'string' || typeof resultUrl !== 'string') continue;
-      items += `<li><a href="/read?a=${encodeURIComponent(resultUrl)}">${safeText(resultTitle)}</a></li>\n`;
+      const noimg = showImages ? '' : '&noimg=1';
+      items += `<li><a href="/read?a=${encodeURIComponent(resultUrl)}${noimg}">${safeText(resultTitle)}</a></li>\n`;
     }
 
     const body =
@@ -499,7 +620,7 @@ ${body}`
 
 // Serve an exact-title match directly (one round trip, no redirect);
 // otherwise fall back to search results.
-async function handleSearch(query: string): Promise<Response> {
+async function handleSearch(query: string, showImages: boolean): Promise<Response> {
   const trimmed = query.trim();
   if (!trimmed) {
     return htmlResponse(renderHomePage(), 200, true);
@@ -508,21 +629,22 @@ async function handleSearch(query: string): Promise<Response> {
   try {
     const upstream = await wikiFetch(articleUrl);
     if (upstream.ok && (upstream.headers.get('content-type') || '').includes('text/html')) {
-      return transformArticle(upstream, upstream.url || articleUrl);
+      return transformArticle(upstream, upstream.url || articleUrl, showImages);
     }
   } catch {
     // Fall through to search results.
   }
-  return renderSearchResults(trimmed);
+  return renderSearchResults(trimmed, showImages);
 }
 
-async function handleRequest(url: URL): Promise<Response> {
+async function handleRequest(url: URL, env: Env): Promise<Response> {
   const path = url.pathname;
+  const showImages = url.searchParams.get('noimg') !== '1';
 
   if (path === '/' || path === '/index.php') {
     const query = url.searchParams.get('q');
     if (query) {
-      return handleSearch(query);
+      return handleSearch(query, showImages);
     }
     return htmlResponse(renderHomePage(), 200, true);
   }
@@ -532,12 +654,20 @@ async function handleRequest(url: URL): Promise<Response> {
     if (!articleUrl) {
       return errorResponse('', "No article URL specified. Provide one with the 'a' parameter.", 400);
     }
-    return handleArticle(articleUrl);
+    return handleArticle(articleUrl, showImages);
+  }
+
+  if (path === '/img') {
+    const src = url.searchParams.get('src');
+    if (!src) {
+      return new Response("No image URL specified. Provide one with the 'src' parameter.", { status: 400 });
+    }
+    return handleImage(src, env);
   }
 
   // Convenience: /wiki/Foo works like on Wikipedia itself.
   if (path.startsWith('/wiki/') && path.length > '/wiki/'.length) {
-    return handleArticle(`https://en.wikipedia.org${path}`);
+    return handleArticle(`https://en.wikipedia.org${path}`, showImages);
   }
 
   return new Response('Not Found', { status: 404 });
@@ -551,7 +681,7 @@ export default {
       if (cached) return cached;
     }
 
-    const response = await handleRequest(new URL(request.url));
+    const response = await handleRequest(new URL(request.url), env);
 
     if (
       cacheable &&

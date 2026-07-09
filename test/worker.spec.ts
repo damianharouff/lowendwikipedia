@@ -19,12 +19,14 @@ ${bodyContent}
 </html>`;
 }
 
-async function transform(bodyContent: string, url = ARTICLE_URL): Promise<string> {
+async function transform(bodyContent: string, url = ARTICLE_URL, showImages = true): Promise<string> {
   const upstream = new Response(wikiPage(bodyContent), {
     headers: { 'content-type': 'text/html; charset=utf-8' },
   });
-  return transformArticle(upstream, url).text();
+  return transformArticle(upstream, url, showImages).text();
 }
+
+const FIGURE_HTML = `<figure typeof="mw:File/Thumb"><a href="/wiki/File:Photo.jpg"><img src="//upload.wikimedia.org/wikipedia/commons/thumb/d/d4/Photo.jpg/250px-Photo.jpg" width="250" height="188" alt="A photo" srcset="//upload.wikimedia.org/wikipedia/commons/thumb/d/d4/Photo.jpg/500px-Photo.jpg 2x"></a><figcaption>The caption</figcaption></figure>`;
 
 describe('transformArticle', () => {
   it('keeps entity-encoded text intact without decoding it into markup', async () => {
@@ -100,6 +102,37 @@ describe('transformArticle', () => {
     expect(out).toContain('Caf&#233;');
     expect(out).toContain('- "quoted"');
     expect(out).toContain('&#20013;');
+  });
+
+  it('proxies Wikimedia images at highest srcset density with layout dimensions', async () => {
+    const out = await transform(FIGURE_HTML);
+    expect(out).toContain(
+      'src="/img?src=https%3A%2F%2Fupload.wikimedia.org%2Fwikipedia%2Fcommons%2Fthumb%2Fd%2Fd4%2FPhoto.jpg%2F500px-Photo.jpg"'
+    );
+    expect(out).toContain('width="250"');
+    expect(out).toContain('height="188"');
+    expect(out).toContain('alt="A photo"');
+    // File: page wrapper link is unwrapped, caption becomes small italic text
+    expect(out).not.toContain('File%3APhoto');
+    expect(out).toContain('<small><i>The caption</i></small>');
+  });
+
+  it('removes non-Wikimedia images', async () => {
+    const out = await transform('<p>text</p><img src="https://example.com/tracker.png">');
+    expect(out).not.toContain('<img');
+  });
+
+  it('removes images and threads noimg through links in text-only mode', async () => {
+    const out = await transform(`${FIGURE_HTML}<p><a href="/wiki/Other_page">link</a></p>`, ARTICLE_URL, false);
+    expect(out).not.toContain('<img');
+    expect(out).toContain('/read?a=https%3A%2F%2Fen.wikipedia.org%2Fwiki%2FOther_page&noimg=1');
+    expect(out).toContain('Show images');
+  });
+
+  it('offers a text-only toggle when images are on', async () => {
+    const out = await transform('<p>text</p>');
+    expect(out).toContain('&noimg=1');
+    expect(out).toContain('Text-only');
   });
 
   it('strips attributes and injects the browsing form shell', async () => {
@@ -189,6 +222,33 @@ describe('routing', () => {
     const res = await SELF.fetch('https://lowend.example/?q=Api+down+test');
     expect(res.status).toBe(502);
     expect(await res.text()).toContain('Search failed');
+  });
+
+  it('rejects /img for missing or non-Wikimedia sources', async () => {
+    let res = await SELF.fetch('https://lowend.example/img');
+    expect(res.status).toBe(400);
+    res = await SELF.fetch(`https://lowend.example/img?src=${encodeURIComponent('https://example.com/x.png')}`);
+    expect(res.status).toBe(400);
+  });
+
+  it('serves images from the /img proxy', async () => {
+    // Minimal valid 1x1 PNG
+    const png = Uint8Array.from(
+      atob(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
+      ),
+      (c) => c.charCodeAt(0)
+    );
+    stubWikipedia({
+      'https://upload.wikimedia.org/': () =>
+        new Response(png, { headers: { 'content-type': 'image/png' } }),
+    });
+
+    const src = encodeURIComponent('https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/X.jpg/500px-X.jpg');
+    const res = await SELF.fetch(`https://lowend.example/img?src=${src}`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toMatch(/^image\//);
+    expect(res.headers.get('cache-control')).toContain('max-age');
   });
 
   it('serves /wiki/ paths directly', async () => {

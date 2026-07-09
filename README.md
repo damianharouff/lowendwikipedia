@@ -20,7 +20,8 @@ Inspired by [FrogFind](http://frogfind.com/) by [Action Retro](https://youtube.c
 - **No JavaScript Required**: Works on the most basic browsers
 - **Link Proxying**: Wikipedia links stay within the simplified interface; external links go direct; edit/red links are unwrapped to plain text
 - **Pretty URLs**: `/wiki/Article_name` works just like on Wikipedia
-- **Edge Caching**: Rendered pages are cached at the Cloudflare edge for 10 minutes via the Cache API
+- **E-ink-Optimized Images**: Article images are served through Cloudflare Images as small grayscale JPEGs (500px max, from Wikipedia's own thumbnails — never full-size originals) with layout dimensions preserved; a "Text-only" toggle (`noimg=1`) disables them per page
+- **Edge Caching**: Rendered pages are cached at the Cloudflare edge for 10 minutes via the Cache API; transformed images for 30 days
 - **Security**: SSRF protection (exact Wikipedia-domain match), XSS-safe rewriting, size-capped file proxying
 
 ## Setup
@@ -80,8 +81,8 @@ npm run tail
 - Inline citation markers ([1], [2], ...)
 - Categories and hidden categories
 - Language selection lists
-- Infoboxes and all tables
-- Images, figures, galleries, and math markup
+- Infoboxes and all tables (including their images)
+- Image galleries and math markup
 - Table of contents
 - Footer text ("Retrieved from", Wikimedia links)
 - HTML comments and all element attributes
@@ -90,6 +91,7 @@ npm run tail
 
 - Article title and main text
 - Basic formatting (headings, paragraphs, bold, italic, lists, definition lists, code blocks)
+- Article images with captions (grayscale, resized for e-ink; disable with the "Text-only" link)
 - "See also" section with internal links
 - Internal Wikipedia links (proxied)
 - External links (direct)

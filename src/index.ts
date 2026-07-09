@@ -8,7 +8,8 @@
  * pure ASCII (numeric character references for anything beyond it).
  */
 
-const USER_AGENT = 'LowEndWikipedia/1.0 (Cloudflare Worker; lowend-browser-proxy)';
+// Wikimedia's User-Agent policy asks for contact info in bot/proxy UAs.
+const USER_AGENT = 'LowEndWikipedia/1.0 (https://github.com/damianharouff/lowendwikipedia) Cloudflare-Workers';
 const CONTENT_TYPE = 'text/html; charset=iso-8859-1';
 const CACHE_CONTROL = 'public, max-age=600';
 // Wikimedia thumbnail URLs are effectively immutable, so cache transformed
@@ -240,6 +241,7 @@ function renderHomePage(): string {
 Search Wikipedia: <input type="text" size="30" name="q"><br>
 <input type="submit" value="Search">
 </form>
+<p><a href="/wiki/Special:Random">Random article</a></p>
 </center>
 <br><br><br>
 <small><center>Inspired by <b><a href="https://frogfind.com/">FrogFind</a> by <a href="https://youtube.com/ActionRetro">Action Retro</a></b> on YouTube</center></small>
@@ -248,12 +250,50 @@ Search Wikipedia: <input type="text" size="30" name="q"><br>
 }
 
 /**
+ * Build a compact one-line table of contents from the MediaWiki sections
+ * API. The streaming rewriter can't know section names before the headings
+ * arrive, so this small metadata request (run in parallel with the article
+ * fetch) supplies them up front. Returns '' when a TOC isn't useful.
+ */
+async function fetchSectionsToc(articleUrl: string): Promise<string> {
+  try {
+    const url = new URL(articleUrl);
+    const title = decodeURIComponent(url.pathname.replace(/^\/wiki\//, ''));
+    if (!title || title.startsWith('Special:')) return '';
+    const api = `https://${url.hostname}/w/api.php?action=parse&prop=sections&redirects=1&format=json&page=${encodeURIComponent(title)}`;
+    const response = await wikiFetch(api);
+    if (!response.ok) return '';
+    const data = (await response.json()) as {
+      parse?: { sections?: Array<{ toclevel?: number; line?: string; anchor?: string }> };
+    };
+    const links: string[] = [];
+    for (const section of data.parse?.sections || []) {
+      if (section.toclevel !== 1 || !section.anchor || !section.line) continue;
+      if (REMOVED_SECTION_ID_SET.has(section.anchor)) continue;
+      // Anchors must survive the pure-ASCII output; skip exotic ones.
+      if (!/^[\x21-\x7E]+$/.test(section.anchor)) continue;
+      const label = safeText(section.line.replace(/<[^>]*>/g, ''));
+      links.push(`<a href="#${escapeHtml(section.anchor)}">${label}</a>`);
+    }
+    if (links.length < 2) return '';
+    return `<p><small><b>Contents:</b> ${links.join(' | ')}</small></p>`;
+  } catch {
+    return '';
+  }
+}
+
+/**
  * Rewrite a Wikipedia HTML response into simplified, ASCII-safe markup.
  *
  * Streaming, so the client starts receiving bytes before Wikipedia has
  * finished sending them and the Worker never buffers the page.
  */
-export function transformArticle(upstream: Response, articleUrl: string, showImages = true): Response {
+export function transformArticle(
+  upstream: Response,
+  articleUrl: string,
+  showImages = true,
+  tocHtml = ''
+): Response {
   const title = safeText(`${titleFromUrl(articleUrl)} - LowEndWikipedia`);
   const rewriter = new HTMLRewriter();
 
@@ -287,7 +327,21 @@ export function transformArticle(upstream: Response, articleUrl: string, showIma
   rewriter.on('body', {
     element(el) {
       el.prepend(`${browsingForm(articleUrl, showImages)}<font size="4">`, { html: true });
-      el.append('</font>', { html: true });
+      // Wikipedia text is CC BY-SA; attribution is required.
+      el.append(
+        `</font><hr><p><small>From <a href="${safeText(articleUrl)}">Wikipedia</a>, text licensed <a href="https://creativecommons.org/licenses/by-sa/4.0/">CC BY-SA 4.0</a>.</small></p>`,
+        { html: true }
+      );
+    },
+  });
+
+  // Insert the table of contents right after the article title.
+  let tocInserted = false;
+  rewriter.on('h1', {
+    element(el) {
+      if (!tocHtml || tocInserted || el.removed) return;
+      tocInserted = true;
+      el.after(tocHtml, { html: true });
     },
   });
 
@@ -302,8 +356,15 @@ export function transformArticle(upstream: Response, articleUrl: string, showIma
       if (REMOVED_SECTION_ID_SET.has(id)) {
         skipLevel = level;
         el.remove();
-      } else if (skipLevel !== null && level <= skipLevel) {
+        return;
+      }
+      if (skipLevel !== null && level <= skipLevel) {
         skipLevel = null;
+      }
+      // Named anchor so table-of-contents fragment links work after
+      // attribute stripping. <a name> is HTML 2.0-safe.
+      if (skipLevel === null && id && /^[\x21-\x7E]+$/.test(id)) {
+        el.prepend(`<a name="${escapeHtml(id)}"></a>`, { html: true });
       }
     },
   });
@@ -537,6 +598,12 @@ async function handleArticle(articleUrl: string, showImages: boolean): Promise<R
     return errorResponse(articleUrl, 'Only Wikipedia URLs are supported.', 400);
   }
 
+  // Fetch the TOC metadata in parallel with the article. For Special: pages
+  // (e.g. Special:Random) the final title is only known after the redirect,
+  // so the TOC fetch happens afterwards instead. Never rejects.
+  const specialPage = titleFromUrl(articleUrl).startsWith('Special:');
+  const tocPromise = specialPage ? null : fetchSectionsToc(articleUrl);
+
   let upstream: Response;
   try {
     upstream = await wikiFetch(articleUrl);
@@ -563,7 +630,9 @@ async function handleArticle(articleUrl: string, showImages: boolean): Promise<R
       upstream.status === 404 ? 404 : 502
     );
   }
-  return transformArticle(upstream, upstream.url || articleUrl, showImages);
+  const finalUrl = upstream.url || articleUrl;
+  const tocHtml = tocPromise ? await tocPromise : await fetchSectionsToc(finalUrl);
+  return transformArticle(upstream, finalUrl, showImages, tocHtml);
 }
 
 async function renderSearchResults(query: string, showImages: boolean): Promise<Response> {
@@ -626,10 +695,11 @@ async function handleSearch(query: string, showImages: boolean): Promise<Respons
     return htmlResponse(renderHomePage(), 200, true);
   }
   const articleUrl = `https://en.wikipedia.org/wiki/${encodeURIComponent(trimmed.replace(/ /g, '_'))}`;
+  const tocPromise = fetchSectionsToc(articleUrl); // parallel with the article; never rejects
   try {
     const upstream = await wikiFetch(articleUrl);
     if (upstream.ok && (upstream.headers.get('content-type') || '').includes('text/html')) {
-      return transformArticle(upstream, upstream.url || articleUrl, showImages);
+      return transformArticle(upstream, upstream.url || articleUrl, showImages, await tocPromise);
     }
   } catch {
     // Fall through to search results.
@@ -675,13 +745,15 @@ async function handleRequest(url: URL, env: Env): Promise<Response> {
 
 export default {
   async fetch(request, env, ctx): Promise<Response> {
-    const cacheable = request.method === 'GET';
+    const url = new URL(request.url);
+    // Special:Random must produce a fresh article every time.
+    const cacheable = request.method === 'GET' && !url.pathname.startsWith('/wiki/Special:Random');
     if (cacheable) {
       const cached = await caches.default.match(request);
       if (cached) return cached;
     }
 
-    const response = await handleRequest(new URL(request.url), env);
+    const response = await handleRequest(url, env);
 
     if (
       cacheable &&

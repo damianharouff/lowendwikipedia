@@ -19,6 +19,9 @@ Inspired by [FrogFind](http://frogfind.com/) by [Action Retro](https://youtube.c
 - **ASCII-Safe Output**: Served as ISO-8859-1 with typographic punctuation transliterated and all other non-ASCII characters encoded as numeric character references, so vintage browsers without Unicode support render correctly
 - **No JavaScript Required**: Works on the most basic browsers
 - **Link Proxying**: Wikipedia links stay within the simplified interface; external links go direct; edit/red links are unwrapped to plain text
+- **Table of Contents**: A compact section-link line under the title (fetched from the MediaWiki sections API) with HTML 2.0-safe named anchors
+- **Random Article**: `/wiki/Special:Random` link on the home page, never cached
+- **Attribution**: Every article carries a CC BY-SA footer linking to the original
 - **Pretty URLs**: `/wiki/Article_name` works just like on Wikipedia
 - **E-ink-Optimized Images**: Article images are served through Cloudflare Images as small grayscale JPEGs (500px max, from Wikipedia's own thumbnails — never full-size originals) with layout dimensions preserved; a "Text-only" toggle (`noimg=1`) disables them per page
 - **Edge Caching**: Rendered pages are cached at the Cloudflare edge for 10 minutes via the Cache API; transformed images for 30 days

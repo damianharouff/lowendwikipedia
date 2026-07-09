@@ -19,11 +19,16 @@ ${bodyContent}
 </html>`;
 }
 
-async function transform(bodyContent: string, url = ARTICLE_URL, showImages = true): Promise<string> {
+async function transform(
+  bodyContent: string,
+  url = ARTICLE_URL,
+  showImages = true,
+  tocHtml = ''
+): Promise<string> {
   const upstream = new Response(wikiPage(bodyContent), {
     headers: { 'content-type': 'text/html; charset=utf-8' },
   });
-  return transformArticle(upstream, url, showImages).text();
+  return transformArticle(upstream, url, showImages, tocHtml).text();
 }
 
 const FIGURE_HTML = `<figure typeof="mw:File/Thumb"><a href="/wiki/File:Photo.jpg"><img src="//upload.wikimedia.org/wikipedia/commons/thumb/d/d4/Photo.jpg/250px-Photo.jpg" width="250" height="188" alt="A photo" srcset="//upload.wikimedia.org/wikipedia/commons/thumb/d/d4/Photo.jpg/500px-Photo.jpg 2x"></a><figcaption>The caption</figcaption></figure>`;
@@ -141,6 +146,27 @@ describe('transformArticle', () => {
     expect(out).toContain('Browsing URL:');
     expect(out).toContain('<title>Test article - LowEndWikipedia</title>');
   });
+
+  it('appends a CC BY-SA attribution footer linking to the source', async () => {
+    const out = await transform('<p>text</p>');
+    expect(out).toContain(`<a href="${ARTICLE_URL}">Wikipedia</a>`);
+    expect(out).toContain('creativecommons.org/licenses/by-sa/4.0');
+  });
+
+  it('inserts the TOC after the title and anchors on kept headings', async () => {
+    const toc = '<p><small><b>Contents:</b> <a href="#History">History</a> | <a href="#Legacy">Legacy</a></p>';
+    const out = await transform(
+      '<h2 id="History">History</h2><p>Old</p><h2 id="Legacy">Legacy</h2><p>New</p>',
+      ARTICLE_URL,
+      true,
+      toc
+    );
+    expect(out).toContain('Contents:');
+    expect(out.indexOf('Contents:')).toBeGreaterThan(out.indexOf('<h1>'));
+    expect(out.indexOf('Contents:')).toBeLessThan(out.indexOf('<h2>'));
+    expect(out).toContain('<h2><a name="History"></a>History</h2>');
+    expect(out).toContain('<a name="Legacy"></a>');
+  });
 });
 
 // Tests and the Worker share an isolate, so stubbing globalThis.fetch
@@ -178,11 +204,21 @@ describe('routing', () => {
     }
   });
 
-  it('serves an exact search match as an article directly', async () => {
+  it('serves an exact search match as an article directly, with API-built TOC', async () => {
     stubWikipedia({
       'https://en.wikipedia.org/wiki/Direct_hit': () =>
-        new Response(wikiPage('<p>Direct hit body</p>'), {
+        new Response(wikiPage('<h2 id="Alpha">Alpha</h2><p>Direct hit body</p><h2 id="Beta">Beta</h2>'), {
           headers: { 'content-type': 'text/html; charset=utf-8' },
+        }),
+      'https://en.wikipedia.org/w/api.php': () =>
+        Response.json({
+          parse: {
+            sections: [
+              { toclevel: 1, line: 'Alpha', anchor: 'Alpha' },
+              { toclevel: 1, line: 'Beta', anchor: 'Beta' },
+              { toclevel: 1, line: 'References', anchor: 'References' },
+            ],
+          },
         }),
     });
 
@@ -190,6 +226,8 @@ describe('routing', () => {
     expect(res.status).toBe(200);
     const text = await res.text();
     expect(text).toContain('Direct hit body');
+    expect(text).toContain('<b>Contents:</b> <a href="#Alpha">Alpha</a> | <a href="#Beta">Beta</a>');
+    expect(text).not.toContain('#References');
   });
 
   it('falls back to search results when no exact article exists', async () => {

@@ -70,6 +70,15 @@ Deploy to Cloudflare Workers:
 npm run deploy
 ```
 
+Or self-host with Docker (no Cloudflare account needed). The `Dockerfile`
+bundles the Worker with wrangler and runs it in workerd via Miniflare, with a
+disk-backed cache and a local Images-binding simulator:
+```bash
+docker compose up -d --build
+```
+It listens on `127.0.0.1:8787` by default; set `BIND_ADDR` and `PORT` in a
+`.env` file next to `compose.yaml` to publish it elsewhere.
+
 View live logs:
 ```bash
 npm run tail

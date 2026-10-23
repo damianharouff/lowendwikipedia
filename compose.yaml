@@ -1,0 +1,32 @@
+# Self-hosted lowendwikipedia. See the "Self-hosting" section of README.md.
+#
+# The port is published on 127.0.0.1 by default so nothing is exposed by
+# accident; set BIND_ADDR (and optionally PORT) in a .env file next to this
+# file to publish it on a specific interface, e.g. a VPN address, and put a
+# reverse proxy in front of it if other devices need to reach it.
+#
+#   docker compose up -d --build
+
+name: lowendwikipedia
+
+services:
+  web:
+    build: .
+    image: lowendwikipedia
+    pull_policy: build            # local image: `docker compose pull` must not look for it on Docker Hub
+    container_name: lowendwikipedia
+    restart: unless-stopped
+    init: true
+    ports:
+      - "${BIND_ADDR:-127.0.0.1}:${PORT:-8787}:8787"
+    volumes:
+      - cache:/data
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+volumes:
+  cache:
+    name: lowendwikipedia-cache

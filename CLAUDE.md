@@ -13,10 +13,25 @@ low-power clients. The primary target device is a **Kindle Oasis** (7" e-ink,
 - `npm run dev` — local server at localhost:8787
 - `npm test` — vitest (Workers pool, runs in workerd)
 - `npm run check` — `wrangler types && tsc` (regenerates `worker-configuration.d.ts`, gitignored)
-- `npm run deploy` — deploy (requires `npx wrangler login` in an interactive shell)
+- `npm run deploy` — deploy to Cloudflare (requires `npx wrangler login` in an
+  interactive shell). The maintainer's live instance is the self-hosted
+  Docker one (below), not a Cloudflare deployment.
 
 Verify changes end-to-end with `wrangler dev` + curl against real Wikipedia,
 not just tests.
+
+## Self-hosting (Docker)
+
+The Worker also runs self-hosted: `Dockerfile` bundles it with
+`wrangler deploy --dry-run` and runs the bundle in workerd via Miniflare
+(`deploy/server.mjs`), which simulates `caches.default` (disk-backed under
+`/data`) and the Images binding (sharp; resizes/re-encodes but ignores
+`saturation`, so images stay colour). The runtime image needs
+`ca-certificates` (workerd uses the system CA store) and a glibc base; the
+build stage installs only wrangler because the vitest pool dev dependency
+trips npm's resolver. `compose.yaml` binds to 127.0.0.1 unless `BIND_ADDR`
+is set in a gitignored `.env`; deployment specifics (host, address,
+reverse proxy) deliberately live outside this public repo.
 
 ## Architecture
 

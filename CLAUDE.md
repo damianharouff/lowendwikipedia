@@ -33,6 +33,13 @@ trips npm's resolver. `compose.yaml` binds to 127.0.0.1 unless `BIND_ADDR`
 is set in a gitignored `.env`; deployment specifics (host, address,
 reverse proxy) deliberately live outside this public repo.
 
+The repo root is also a Home Assistant add-on repository: `repository.yaml`
+plus `config.yaml` (the add-on manifest; the Supervisor builds the root
+`Dockerfile` on the box and only offers an update when `version` changes).
+The Supervisor mounts `/data` owned by root, so the container starts as root
+and `deploy/entrypoint.sh` chowns `/data` and drops to `node` via `setpriv` —
+do not reintroduce `USER node` in the Dockerfile.
+
 ## Architecture
 
 Everything is in `src/index.ts`. Routes: `/` (home + `?q=` search),

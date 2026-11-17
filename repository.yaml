@@ -1,0 +1,4 @@
+# Lets Home Assistant's Supervisor add this repo as an app (add-on) repository.
+name: LowEndWikipedia
+url: https://github.com/damianharouff/lowendwikipedia
+maintainer: damianharouff

@@ -79,6 +79,12 @@ docker compose up -d --build
 It listens on `127.0.0.1:8787` by default; set `BIND_ADDR` and `PORT` in a
 `.env` file next to `compose.yaml` to publish it elsewhere.
 
+The same image runs as a Home Assistant app (add-on) on Home Assistant OS
+(x86-64): add `https://github.com/damianharouff/lowendwikipedia` under
+Settings → Apps → App store → ⋮ → Repositories, install "LowEndWikipedia"
+(the Supervisor builds the image on the box), and start it. It listens on
+port 8787 of the Home Assistant host.
+
 View live logs:
 ```bash
 npm run tail

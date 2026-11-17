@@ -1,0 +1,18 @@
+# Home Assistant app (add-on) manifest. With this file and repository.yaml at
+# the repo root, the repo is its own add-on repository: add its URL to the
+# Supervisor's app store and the Supervisor builds the Dockerfile on the box.
+# Bump `version` to offer an update. Not used by Cloudflare or compose.
+name: LowEndWikipedia
+version: "1.0.0"
+slug: lowendwikipedia
+description: Lightweight Wikipedia proxy for e-ink readers and vintage browsers
+url: https://github.com/damianharouff/lowendwikipedia
+arch:
+  - amd64
+startup: application
+boot: auto
+ports:
+  8787/tcp: 8787
+ports_description:
+  8787/tcp: Web interface (plain HTTP)
+webui: http://[HOST]:[PORT:8787]/

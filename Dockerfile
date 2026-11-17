@@ -23,11 +23,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
 RUN npm install --no-audit --no-fund --omit=dev miniflare@4.20260730.0 \
   && npm cache clean --force
 COPY --from=build /src/dist/index.js ./dist/index.js
-COPY wrangler.jsonc deploy/server.mjs ./
+COPY wrangler.jsonc deploy/server.mjs deploy/entrypoint.sh ./
 RUN mkdir -p /data && chown -R node:node /data /app
-USER node
+# Starts as root only to chown /data (a root-owned bind mount under Home
+# Assistant), then entrypoint.sh drops to the `node` user.
 VOLUME /data
 EXPOSE 8787
 HEALTHCHECK --interval=60s --timeout=5s --start-period=20s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:8787/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
-CMD ["node", "server.mjs"]
+CMD ["./entrypoint.sh"]
